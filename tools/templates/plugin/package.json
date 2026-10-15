@@ -1,0 +1,52 @@
+{
+  "name": "__PACKAGE_NAME__",
+  "version": "0.0.0",
+  "description": "__DESCRIPTION__",
+  "license": "MIT",
+  "author": "Just Impact Group GmbH",
+  "type": "module",
+  "homepage": "https://github.com/justimpactgroup/openclaw/tree/main/plugins/__NAME__#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justimpactgroup/openclaw.git",
+    "directory": "plugins/__NAME__"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin"
+  ],
+  "files": [
+    "dist",
+    "openclaw.plugin.json"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.lib.json --noCheck",
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "manifest": "openclaw plugins build",
+    "validate": "openclaw plugins validate && node ../../tools/scripts/check-package.ts",
+    "clawhub-publish": "node ../../tools/scripts/clawhub-publish.ts"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=__OPENCLAW_VERSION__"
+    },
+    "build": {
+      "openclawVersion": "__OPENCLAW_VERSION__"
+    }
+  },
+  "peerDependencies": {
+    "openclaw": ">=__OPENCLAW_VERSION__"
+  },
+  "dependencies": {
+    "typebox": "__TYPEBOX_VERSION__"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
