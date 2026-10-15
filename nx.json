@@ -1,0 +1,33 @@
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "analytics": false,
+  "neverConnectToCloud": true,
+  "targetDefaults": {
+    "build": {
+      "dependsOn": ["typecheck"]
+    },
+    "validate": {
+      "dependsOn": ["build"]
+    },
+    "manifest": {
+      "dependsOn": ["build"]
+    }
+  },
+  "release": {
+    "projectsRelationship": "independent",
+    "version": {
+      "conventionalCommits": true,
+      "preVersionCommand": "npx nx run-many -t build",
+      "fallbackCurrentVersionResolver": "disk",
+      "versionActions": "tools/release/version-actions.ts"
+    },
+    "changelog": {
+      "projectChangelogs": {
+        "renderOptions": {
+          "authors": false
+        }
+      },
+      "automaticFromRef": true
+    }
+  }
+}
