@@ -76,6 +76,10 @@ line and say why: `// eslint-disable-next-line no-restricted-globals -- fixed or
    `if (typeof config.apiKey !== "string") throw new Error("apiKey is not resolved")`. Never read
    `process.env`, and never put secrets in descriptions, results, errors or logs.
 
+   OAuth sign-ins are the exception: refresh tokens rotate, so keep them in plugin state
+   (`api.runtime.state.openKeyedStore`) and access tokens in memory. Plugin state is not encrypted
+   at rest; say so in the README.
+
 6. **Return little, and treat it as untrusted.** Return only what the model needs. Third-party
    content can carry prompt injection itself, so never phrase results as instructions, and don't
    copy raw upstream errors. Log ids, counts and status codes only.

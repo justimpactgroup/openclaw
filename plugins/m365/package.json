@@ -1,0 +1,52 @@
+{
+  "name": "@justimpactgroup/m365",
+  "version": "0.0.0",
+  "description": "Microsoft 365 for OpenClaw: Outlook mail, calendar, contacts, OneDrive and SharePoint through Microsoft Graph",
+  "license": "MIT",
+  "author": "Just Impact Group GmbH",
+  "type": "module",
+  "homepage": "https://github.com/justimpactgroup/openclaw/tree/main/plugins/m365#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justimpactgroup/openclaw.git",
+    "directory": "plugins/m365"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin"
+  ],
+  "files": [
+    "dist",
+    "openclaw.plugin.json"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.lib.json --noCheck",
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "manifest": "openclaw plugins build",
+    "validate": "openclaw plugins validate && node ../../tools/scripts/check-package.ts",
+    "clawhub-publish": "node ../../tools/scripts/clawhub-publish.ts"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.10.2"
+    },
+    "build": {
+      "openclawVersion": "2026.10.2"
+    }
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.10.2"
+  },
+  "dependencies": {
+    "typebox": "1.3.34"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
