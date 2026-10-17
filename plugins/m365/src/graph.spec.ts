@@ -87,7 +87,7 @@ describe("getMe", () => {
       policy: { hostnameAllowlist: ["graph.microsoft.com"] },
       auditContext: "m365.graph",
     });
-    expect(options).not.toHaveProperty("capture");
+    expect(options?.capture).toBeUndefined();
   });
 
   it("retries a 401 once with a fresh token", async () => {
@@ -212,14 +212,14 @@ describe("requestJson", () => {
   const request = (url: string, host = "graph.microsoft.com") =>
     requestJson({ url: new URL(url), host, init: {}, maxBytes: 1024, auditContext: "test" });
 
-  it.each(["https://evil.example/v1.0/me", "http://graph.microsoft.com/v1.0/me"])(
-    "refuses %s before any request",
-    async (url) => {
-      const { fetch } = stubFetch(json(ME));
-      await expect(request(url)).rejects.toThrow("unexpected address");
-      expect(fetch).not.toHaveBeenCalled();
-    },
-  );
+  it.each([
+    ["https://evil.example/v1.0/me", "Microsoft 365 request blocked by network policy"],
+    ["http://graph.microsoft.com/v1.0/me", "Could not reach Microsoft 365"],
+  ])("refuses %s before any request", async (url, message) => {
+    const { fetch } = stubFetch(json(ME));
+    await expect(request(url)).rejects.toThrow(new Error(message));
+    expect(fetch).not.toHaveBeenCalled();
+  });
 
   it.each([
     [

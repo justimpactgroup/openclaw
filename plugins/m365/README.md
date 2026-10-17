@@ -2,7 +2,7 @@
 
 Microsoft 365 for OpenClaw through Microsoft Graph. This first release signs in to Microsoft 365
 and checks the connection. Mail, calendar, contacts, OneDrive and SharePoint tools follow in later
-releases.
+releases; most will need an admin to grant consent.
 
 ## Install
 
@@ -69,9 +69,8 @@ Ask the agent to sign in to Microsoft 365:
 
 Start the sign-in only in a direct chat with the agent, not in a group or channel: anyone in your
 tenant who sees the link can finish it with their own account. Paste your own address yourself,
-and check that the account the agent reports is yours. If it is not, enable
-`justimpactgroup_m365_sign_out` (below) and sign out. Step 7 above limits who can finish a
-sign-in.
+and check that the account the agent reports is yours. If it is not, sign out. Step 7 above limits
+who can finish a sign-in.
 
 The pasted address passes through the chat and your model provider. The code in it works only
 once, expires after about a minute, and is useless without a secret the plugin keeps in memory.
@@ -83,7 +82,7 @@ once, expires after about a minute, and is useless without a secret the plugin k
 | `justimpactgroup_m365_status`           | Signed in or not, and as whom (any sender, not only the owner) | Reads your profile (`GET /me`); may store a renewed token, or delete a sign-in Microsoft has expired or revoked |
 | `justimpactgroup_m365_sign_in`          | Starts a sign-in (owner only)                                  | None; no network access                                                                                         |
 | `justimpactgroup_m365_sign_in_complete` | Finishes a sign-in (owner only)                                | Redeems the code and stores the tokens                                                                          |
-| `justimpactgroup_m365_sign_out`         | Signs out (owner only, optional)                               | Deletes the stored tokens. Enable with `tools.alsoAllow`                                                        |
+| `justimpactgroup_m365_sign_out`         | Signs out (owner only, optional)                               | Deletes the stored tokens                                                                                       |
 
 To enable sign-out: `tools.alsoAllow: ["justimpactgroup_m365_sign_out"]`. Without it, sign in
 again to renew a sign-in, or revoke access at Microsoft (below).
@@ -98,19 +97,17 @@ Nothing else. Redirects are not followed.
 
 ## Stored data
 
-The refresh token, your account's object ID, sign-in name and granted scopes are stored in
+The refresh token, your account's object ID and the granted scopes are stored in
 OpenClaw's plugin state (`~/.openclaw/state/openclaw.sqlite`). This is **not encrypted at rest**:
 only file permissions protect it, as for OpenClaw's own OAuth tokens, and backups include it. Use
 full-disk encryption and a dedicated OS user for the Gateway. Access tokens stay in memory.
 
 ## Revoking access
 
-`justimpactgroup_m365_sign_out` deletes the tokens on the Gateway only (enable it with
-`tools.alsoAllow`, see [Tools](#tools)). To revoke the refresh token at Microsoft, use **Sign out
+Sign-out deletes the tokens on the Gateway only. To revoke them at Microsoft, use **Sign out
 everywhere** in [My Account](https://myaccount.microsoft.com) or have an admin revoke your sessions.
-Removing the app's consent blocks new access tokens only while no consent exists: the stored refresh
-token stays valid, and works again if consent is granted again, including tenant-wide admin consent.
-So sign out on the Gateway or revoke your sessions as well.
+Removing the app's consent is not enough: the stored refresh token works again once consent is
+granted again.
 
 ## Limits
 
@@ -119,17 +116,9 @@ So sign out on the Gateway or revoke your sessions as well.
 - Work or school accounts in the global Microsoft cloud only; no personal accounts or national
   clouds.
 - Conditional Access (sign-in frequency, compliant devices, token protection) can block the sign-in
-  or ask for a new one.
-- The Gateway renews the token about hourly from its own IP, and Conditional Access checks that IP.
-  If it is not a trusted location and MFA is required there, complete MFA during sign-in or have an
-  admin trust the Gateway's IP.
+  or ask for a new one. It also checks the Gateway's IP each time the token is renewed (about
+  hourly): if MFA is required there, complete MFA during sign-in or have an admin trust that IP.
 - After 90 days without use, or after a password reset, sign in again.
-
-## Later releases
-
-Mail, calendar, files and sites need more Graph permissions. With Microsoft's default consent
-settings, users cannot consent to `Mail.*`, `Calendars.*`, `Files.Read.All` or `Sites.Read.All`
-themselves, so an admin will need to grant consent.
 
 ## Security
 

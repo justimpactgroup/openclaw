@@ -21,13 +21,14 @@ line and say why: `// eslint-disable-next-line no-restricted-globals -- fixed or
    [plugin permission request](https://docs.openclaw.ai/plugins/plugin-permission-requests) (a
    `before_tool_call` hook, so `definePluginEntry` instead of `defineToolPlugin`) offering only
    `["allow-once", "deny"]`.
-4. **Network only through the SSRF guard, to the host from plugin config.** Pass the `signal` from
-   `execute`'s context, set `timeoutMs`, and call `signal?.throwIfAborted()` inside loops:
+4. **Network only through the SSRF guard, to hosts from plugin config or fixed in code.** Pass the
+   `signal` from `execute`'s context, set `timeoutMs`, and call `signal?.throwIfAborted()` inside
+   loops:
 
    ```ts
    import { fetchWithSsrFGuard } from "openclaw/plugin-sdk/ssrf-runtime";
 
-   const base = new URL(config.baseUrl); // from plugin config, never from tool arguments
+   const base = new URL(config.baseUrl); // from plugin config or code, never from tool arguments
    const { response, release } = await fetchWithSsrFGuard({
      url: new URL(`records/${encodeURIComponent(id)}`, base).href,
      init: { headers: { authorization: `Bearer ${config.apiKey}` } },

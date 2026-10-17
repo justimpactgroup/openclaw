@@ -1,6 +1,7 @@
 import { Type, type Static } from "typebox";
 
 const GUID = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
+const GUID_PATTERN = new RegExp(GUID);
 
 export const ConfigSchema = Type.Object(
   {
@@ -36,7 +37,5 @@ export function resolveAccount(config: M365Config | undefined): Account | undefi
 }
 
 function guid(value: unknown): string | undefined {
-  return typeof value === "string" && new RegExp(GUID).test(value)
-    ? value.toLowerCase()
-    : undefined;
+  return typeof value === "string" && GUID_PATTERN.test(value) ? value.toLowerCase() : undefined;
 }

@@ -1,14 +1,15 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
+import { asOptionalRecord, truncateUtf16Safe } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { Account } from "./config.js";
 import type { TokenProvider } from "./graph.js";
-import { asRecord, requestJson } from "./http.js";
+import { requestJson } from "./http.js";
 
 export const REDIRECT_URI = "http://localhost/openclaw-m365";
 const LOGIN_HOST = "login.microsoftonline.com";
 const SCOPES = "openid profile offline_access https://graph.microsoft.com/User.Read";
 const OIDC_SCOPES = new Set(["openid", "profile", "offline_access", "email"]);
-const SIGN_IN_TTL_MS = 10 * 60_000;
+export const SIGN_IN_TTL_MS = 10 * 60_000;
 const REFRESH_MARGIN_MS = 5 * 60_000;
 // Microsoft expires refresh tokens after 90 days without use.
 const SESSION_TTL_MS = 90 * 86_400_000;
@@ -19,8 +20,13 @@ const NOT_SIGNED_IN =
 const START_AGAIN = "Start again with justimpactgroup_m365_sign_in";
 
 /** Why there is no working connection. The status tool reports these instead of failing. */
-export type SignInProblem =
-  "not-signed-in" | "sign-in-expired" | "consent-required" | "blocked-by-policy";
+export const SIGN_IN_PROBLEMS = [
+  "not-signed-in",
+  "sign-in-expired",
+  "consent-required",
+  "blocked-by-policy",
+] as const;
+type SignInProblem = (typeof SIGN_IN_PROBLEMS)[number];
 
 export class SignInError extends Error {
   readonly reason: SignInProblem;
@@ -36,25 +42,20 @@ type StoredSession = {
   v: 1;
   account: string;
   oid: string;
-  username: string;
   refreshToken: string;
   scopes: string[];
-  updatedAt: number;
 };
 
-/** The part of OpenClaw's keyed plugin state this plugin uses. */
-type SessionStore = {
-  register(
-    key: string,
-    value: StoredSession,
-    opts?: { ttlMs?: number; assertCurrent?: () => void },
-  ): Promise<void>;
-  lookup(key: string): Promise<unknown>;
-  delete(key: string, opts?: { assertCurrent?: () => void }): Promise<boolean>;
-};
+function openSessionStore(api: OpenClawPluginApi) {
+  return api.runtime.state.openKeyedStore<StoredSession>({
+    namespace: "session",
+    maxEntries: 1,
+    overflowPolicy: "reject-new",
+  });
+}
 
 type AuthState = {
-  store: SessionStore;
+  store: ReturnType<typeof openSessionStore>;
   /** The PKCE verifier stays in memory and is never stored. */
   signIn?: { verifier: string; state: string; expiresAt: number };
   accessToken?: { value: string; expiresAt: number };
@@ -69,12 +70,7 @@ const states = new WeakMap<OpenClawPluginApi, AuthState>();
 function stateFor(api: OpenClawPluginApi): AuthState {
   let state = states.get(api);
   if (!state) {
-    const store: SessionStore = api.runtime.state.openKeyedStore<StoredSession>({
-      namespace: "session",
-      maxEntries: 1,
-      overflowPolicy: "reject-new",
-    });
-    state = { store, generation: 0 };
+    state = { store: openSessionStore(api), generation: 0 };
     states.set(api, state);
   }
   return state;
@@ -104,9 +100,12 @@ export function startSignIn(api: OpenClawPluginApi, account: Account): string {
   return `https://${LOGIN_HOST}/${account.tenantId}/oauth2/v2.0/authorize?${query.toString()}`;
 }
 
+const NEEDS_CONSENT =
+  "The app lacks consent for its permissions: an admin must grant it in Microsoft Entra";
+
 const AUTHORIZE_ERRORS = new Map([
   ["access_denied", "The Microsoft sign-in was cancelled or denied"],
-  ["consent_required", "The app needs consent first: an admin must grant it in Microsoft Entra"],
+  ["consent_required", NEEDS_CONSENT],
   ["interaction_required", `Microsoft needs more input to sign in. ${START_AGAIN}`],
 ]);
 
@@ -124,11 +123,7 @@ export async function completeSignIn(
     throw inputError(`No Microsoft 365 sign-in is in progress, or it expired. ${START_AGAIN}`);
   }
   const url = URL.parse(redirectUrl);
-  if (
-    url?.protocol !== "http:" ||
-    url.hostname !== "localhost" ||
-    url.pathname !== "/openclaw-m365"
-  ) {
+  if (!url || url.origin + url.pathname !== REDIRECT_URI) {
     throw inputError(`Paste the full address that starts with ${REDIRECT_URI}`);
   }
   state.signIn = undefined;
@@ -140,7 +135,7 @@ export async function completeSignIn(
     );
   }
   const code = url.searchParams.get("code");
-  if (!sameText(url.searchParams.get("state") ?? "", signIn.state) || !code) {
+  if (url.searchParams.get("state") !== signIn.state || !code) {
     throw inputError(`The address does not belong to the current sign-in. ${START_AGAIN}`);
   }
 
@@ -183,10 +178,8 @@ export async function completeSignIn(
     v: 1,
     account: account.key,
     oid: claims.oid,
-    username: claims.username,
     refreshToken: tokens.refreshToken,
     scopes: tokens.scopes,
-    updatedAt: Date.now(),
   };
   // Before the write, so a refresh that started earlier neither deletes nor overwrites this session.
   const generation = ++state.generation;
@@ -195,7 +188,7 @@ export async function completeSignIn(
   if (state.generation === generation) {
     state.accessToken = { value: tokens.accessToken, expiresAt: tokens.expiresAt };
   }
-  return { username: session.username, scopes: session.scopes };
+  return { username: claims.username, scopes: session.scopes };
 }
 
 /** Deletes the stored session and cached tokens. Access is not revoked at Microsoft. */
@@ -208,13 +201,12 @@ export async function signOut(api: OpenClawPluginApi, assertCurrent?: () => void
   await state.store.delete(SESSION_KEY, { assertCurrent });
 }
 
-/** The signed-in account, or undefined. Never includes tokens. */
-export async function currentSignIn(
+/** The scopes of the signed-in account, or undefined when nobody is signed in. */
+export async function signedInScopes(
   api: OpenClawPluginApi,
   account: Account,
-): Promise<{ username: string; scopes: string[] } | undefined> {
-  const session = await loadSession(stateFor(api), account);
-  return session && { username: session.username, scopes: session.scopes };
+): Promise<string[] | undefined> {
+  return (await loadSession(stateFor(api), account))?.scopes;
 }
 
 export function tokenProvider(api: OpenClawPluginApi, account: Account): TokenProvider {
@@ -276,12 +268,7 @@ async function refresh(
 
   // Microsoft may omit the new refresh token; the old one then stays valid.
   const refreshToken = tokens.refreshToken ?? session.refreshToken;
-  const updated: StoredSession = {
-    ...session,
-    refreshToken,
-    scopes: tokens.scopes,
-    updatedAt: Date.now(),
-  };
+  const updated: StoredSession = { ...session, refreshToken, scopes: tokens.scopes };
   await state.store.register(SESSION_KEY, updated, { ttlMs: SESSION_TTL_MS });
   if (state.generation === generation) {
     state.accessToken = { value: tokens.accessToken, expiresAt: tokens.expiresAt };
@@ -299,12 +286,11 @@ function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): 
 }
 
 async function loadSession(state: AuthState, account: Account): Promise<StoredSession | undefined> {
-  const value = asRecord(await state.store.lookup(SESSION_KEY));
+  const value = asOptionalRecord(await state.store.lookup(SESSION_KEY));
   const valid =
     value?.v === 1 &&
     value.account === account.key &&
     typeof value.oid === "string" &&
-    typeof value.username === "string" &&
     typeof value.refreshToken === "string" &&
     Array.isArray(value.scopes) &&
     value.scopes.every((scope) => typeof scope === "string");
@@ -350,7 +336,7 @@ async function tokenRequest(
 }
 
 function parseTokens(json: unknown): TokenSet {
-  const body = asRecord(json) ?? {};
+  const body = asOptionalRecord(json) ?? {};
   const { token_type, access_token, refresh_token, id_token, scope } = body;
   const expiresIn = Number(body.expires_in);
   if (
@@ -366,7 +352,7 @@ function parseTokens(json: unknown): TokenSet {
     accessToken: access_token,
     expiresAt: Date.now() + expiresIn * 1000,
     // Microsoft may omit the scope when it is the one requested.
-    scopes: graphScopes(typeof scope === "string" ? scope : SCOPES),
+    scopes: graphScopes(scope ?? SCOPES),
     refreshToken: isFilled(refresh_token) ? refresh_token : undefined,
     idToken: isFilled(id_token) ? id_token : undefined,
   };
@@ -391,7 +377,7 @@ function idTokenClaims(idToken: string): {
   let claims: Record<string, unknown> = {};
   try {
     const payload = Buffer.from(idToken.split(".")[1] ?? "", "base64url").toString("utf8");
-    claims = asRecord(JSON.parse(payload)) ?? {};
+    claims = asOptionalRecord(JSON.parse(payload)) ?? {};
   } catch {
     // Rejected below.
   }
@@ -404,7 +390,8 @@ function idTokenClaims(idToken: string): {
     aud: aud.toLowerCase(),
     oid,
     // preferred_username is a display name for the sign-in, not necessarily the UPN.
-    username: typeof preferred_username === "string" ? preferred_username.slice(0, 256) : "",
+    username:
+      typeof preferred_username === "string" ? truncateUtf16Safe(preferred_username, 256) : "",
   };
 }
 
@@ -417,7 +404,7 @@ const APP_REGISTRATION_CODES = [7000218, 700016, 50011, 50194, 9002327];
 
 /** Maps a token endpoint error. Only `error`, the AADSTS numbers and the correlation id are logged. */
 function tokenError(api: OpenClawPluginApi, status: number, json: unknown): Error {
-  const body = asRecord(json) ?? {};
+  const body = asOptionalRecord(json) ?? {};
   const error =
     typeof body.error === "string" && /^[a-z_]{1,64}$/.test(body.error) ? body.error : "";
   const codes = Array.isArray(body.error_codes)
@@ -433,10 +420,7 @@ function tokenError(api: OpenClawPluginApi, status: number, json: unknown): Erro
 
   const has = (list: number[]) => codes.some((code) => list.includes(code));
   if (has(CONSENT_CODES)) {
-    return new SignInError(
-      "consent-required",
-      "The app lacks consent for its permissions: an admin must grant it in Microsoft Entra",
-    );
+    return new SignInError("consent-required", NEEDS_CONSENT);
   }
   if (has(POLICY_CODES)) {
     return new SignInError(
@@ -474,10 +458,4 @@ export function inputError(message: string): Error {
 
 function isFilled(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
-}
-
-function sameText(a: string, b: string): boolean {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
 }

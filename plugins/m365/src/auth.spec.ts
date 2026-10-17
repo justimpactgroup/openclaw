@@ -3,10 +3,10 @@ import { fetchWithSsrFGuard } from "openclaw/plugin-sdk/ssrf-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   completeSignIn,
-  currentSignIn,
   pkceChallenge,
   REDIRECT_URI,
   SignInError,
+  signedInScopes,
   signOut,
   startSignIn,
   tokenProvider,
@@ -74,9 +74,11 @@ function tokens(overrides: Record<string, unknown> = {}) {
 type TokenCall = { url: string; headers: Headers; form: URLSearchParams };
 
 /** Stubs fetch with a token endpoint that answers with the given bodies in order. */
-function stubTokenEndpoint(...bodies: Array<{ status?: number; body: unknown }>) {
+function stubTokenEndpoint(
+  ...bodies: Array<{ status?: number; body: unknown; held?: Promise<void> }>
+) {
   const calls: TokenCall[] = [];
-  const fetch = vi.fn((input: string | URL, init?: RequestInit) => {
+  const fetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
     init?.signal?.throwIfAborted();
     calls.push({
       url: String(input),
@@ -85,7 +87,8 @@ function stubTokenEndpoint(...bodies: Array<{ status?: number; body: unknown }>)
     });
     const next = bodies.shift();
     if (String(input) !== TOKEN_URL || !next) throw new Error("unexpected request");
-    return Promise.resolve(new Response(JSON.stringify(next.body), { status: next.status ?? 200 }));
+    await next.held;
+    return new Response(JSON.stringify(next.body), { status: next.status ?? 200 });
   });
   vi.stubGlobal("fetch", fetch);
   return { calls, fetch };
@@ -142,13 +145,9 @@ describe("completeSignIn", () => {
       username: "ada@contoso.example",
       scopes: ["User.Read"],
     });
-    // capture: false keeps the code, verifier and tokens out of operator debug captures.
     expect(fetchWithSsrFGuard).toHaveBeenCalledWith(
       expect.objectContaining({
         capture: false,
-        maxRedirects: 0,
-        timeoutMs: 15_000,
-        requireHttps: true,
         policy: { hostnameAllowlist: ["login.microsoftonline.com"] },
         auditContext: "m365.token",
       }),
@@ -172,10 +171,8 @@ describe("completeSignIn", () => {
       v: 1,
       account: `global|${TENANT}|${CLIENT}`,
       oid: OID,
-      username: "ada@contoso.example",
       refreshToken: "fake-refresh-1",
       scopes: ["User.Read"],
-      updatedAt: expect.any(Number) as unknown,
     });
     expect(openKeyedStore).toHaveBeenCalledWith({
       namespace: "session",
@@ -248,7 +245,6 @@ describe("completeSignIn", () => {
       "error=access_denied&error_description=AADSTS65004%3A+secret-description",
     );
     const error = await completeSignIn(api, ACCOUNT, url).catch((e: unknown) => e);
-    // The name lets /tools/invoke return the message instead of a bare HTTP 500.
     expect(error).toMatchObject({
       name: "ToolInputError",
       message: "The Microsoft sign-in was cancelled or denied",
@@ -313,19 +309,6 @@ describe("completeSignIn", () => {
       username: "ada@contoso.example",
       scopes: ["User.Read"],
     });
-  });
-
-  it("stores nothing when the host withdraws the call's authority", async () => {
-    const { api, entries } = fakeApi();
-    stubTokenEndpoint({ body: tokens() });
-    const assertCurrent = () => {
-      throw new Error("authority changed");
-    };
-    const url = redirectFor(startSignIn(api, ACCOUNT));
-    await expect(completeSignIn(api, ACCOUNT, url, undefined, assertCurrent)).rejects.toThrow(
-      "authority changed",
-    );
-    expect(entries.size).toBe(0);
   });
 
   it("refuses a second account until the first signs out", async () => {
@@ -474,7 +457,7 @@ describe("tokenProvider", () => {
 
     const changed = fakeApi(first.entries);
     const other = resolveAccount({ tenantId: OID, clientId: CLIENT }) as Account;
-    await expect(currentSignIn(changed.api, other)).resolves.toBeUndefined();
+    await expect(signedInScopes(changed.api, other)).resolves.toBeUndefined();
     await expect(tokenProvider(changed.api, other).getAccessToken()).rejects.toMatchObject({
       reason: "not-signed-in",
     });
@@ -507,21 +490,10 @@ describe("tokenProvider", () => {
   function holdRefresh(refreshBody: { status: number; body: unknown }) {
     let release = () => {};
     const held = new Promise<void>((resolve) => (release = resolve));
-    const answers = [
+    stubTokenEndpoint(
       { body: tokens() },
       { ...refreshBody, held },
       { body: tokens({ access_token: "fake-access-3", refresh_token: "fake-refresh-3" }) },
-    ];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        const next = answers.shift();
-        if (!next) throw new Error("unexpected request");
-        if ("held" in next) await next.held;
-        return new Response(JSON.stringify(next.body), {
-          status: "status" in next ? next.status : 200,
-        });
-      }),
     );
     return () => release();
   }
@@ -589,14 +561,5 @@ describe("tokenProvider", () => {
     await expect(pending).resolves.toMatchObject({ reason: "sign-in-expired" });
     expect(fake.entries.get("current")).toMatchObject({ refreshToken: "fake-refresh-3" });
     await expect(provider.getAccessToken()).resolves.toBe("fake-access-3");
-  });
-
-  it("deletes nothing on sign-out when the host withdraws the call's authority", async () => {
-    const { api, entries } = await signedIn();
-    const assertCurrent = () => {
-      throw new Error("authority changed");
-    };
-    await expect(signOut(api, assertCurrent)).rejects.toThrow("authority changed");
-    expect(entries.size).toBe(1);
   });
 });

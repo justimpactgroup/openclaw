@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
-import { asRecord, requestJson, type JsonResponse } from "./http.js";
+import { asOptionalRecord, truncateUtf16Safe } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { requestJson, type JsonResponse } from "./http.js";
 
 const GRAPH_HOST = "graph.microsoft.com";
 const GRAPH_ROOT = `https://${GRAPH_HOST}/v1.0/`;
@@ -15,23 +16,22 @@ export type TokenProvider = {
 
 /** Segments are checked because encodeURIComponent leaves `..`, which would walk to other resources. */
 function graphUrl(segments: string[], query: Record<string, string>): URL {
-  const url = new URL(GRAPH_ROOT + segments.map(encodeURIComponent).join("/"));
-  url.search = Object.entries(query)
-    .map(([name, value]) => `${name}=${encodeURIComponent(value).replaceAll("%2C", ",")}`)
-    .join("&");
   const safe = (segment: string) => SEGMENT.test(segment) && segment !== "." && segment !== "..";
   if (
     segments.length === 0 ||
     !segments.every(safe) ||
-    !Object.keys(query).every((name) => QUERY_NAME.test(name)) ||
-    !url.pathname.startsWith("/v1.0/")
+    !Object.keys(query).every((name) => QUERY_NAME.test(name))
   ) {
     throw new Error("Refusing to send a Microsoft Graph request to an unexpected address");
   }
+  const url = new URL(GRAPH_ROOT + segments.map(encodeURIComponent).join("/"));
+  url.search = Object.entries(query)
+    .map(([name, value]) => `${name}=${encodeURIComponent(value).replaceAll("%2C", ",")}`)
+    .join("&");
   return url;
 }
 
-/** GETs `segments` under Graph v1.0. A 401 is retried once with a fresh token. */
+/** A 401 is retried once with a fresh token. */
 export async function graphGet(
   tokens: TokenProvider,
   segments: string[],
@@ -71,15 +71,17 @@ export async function getMe(
   logger: PluginLogger,
   signal?: AbortSignal,
 ): Promise<{ userPrincipalName: string; displayName?: string }> {
-  const me = asRecord(
+  const me = asOptionalRecord(
     await graphGet(tokens, ["me"], { $select: "id,displayName,userPrincipalName" }, logger, signal),
   );
   if (typeof me?.id !== "string" || typeof me.userPrincipalName !== "string") {
     throw invalidResponse();
   }
   return {
-    userPrincipalName: me.userPrincipalName.slice(0, 256),
-    ...(typeof me.displayName === "string" ? { displayName: me.displayName.slice(0, 256) } : {}),
+    userPrincipalName: truncateUtf16Safe(me.userPrincipalName, 256),
+    ...(typeof me.displayName === "string"
+      ? { displayName: truncateUtf16Safe(me.displayName, 256) }
+      : {}),
   };
 }
 
@@ -92,7 +94,7 @@ const FAILURES = new Map([
 
 /** Graph's `error.message` is never used: it is upstream text. Only a well-formed code is kept. */
 function graphError({ status, headers, json }: JsonResponse, logger: PluginLogger): Error {
-  const rawCode = asRecord(asRecord(json)?.error)?.code;
+  const rawCode = asOptionalRecord(asOptionalRecord(json)?.error)?.code;
   const code =
     typeof rawCode === "string" && /^[A-Za-z][A-Za-z0-9_.]{0,63}$/.test(rawCode) ? rawCode : "";
   const requestId = /^[0-9a-f-]{1,64}$/i.exec(headers.get("request-id") ?? "")?.[0] ?? "";

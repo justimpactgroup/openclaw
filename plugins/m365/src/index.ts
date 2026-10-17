@@ -5,10 +5,12 @@ import { defineToolPlugin, type ToolPluginToolDefinition } from "openclaw/plugin
 import { jsonResult } from "openclaw/plugin-sdk/tool-results";
 import {
   completeSignIn,
-  currentSignIn,
   inputError,
   REDIRECT_URI,
+  SIGN_IN_PROBLEMS,
+  SIGN_IN_TTL_MS,
   SignInError,
+  signedInScopes,
   signOut,
   startSignIn,
   tokenProvider,
@@ -24,7 +26,7 @@ const SignInCompleteParams = Type.Object(
       description: `The full address the browser showed after sign-in, starting with ${REDIRECT_URI}?`,
       minLength: 1,
       maxLength: 8192,
-      pattern: "^http://localhost/openclaw-m365\\?",
+      pattern: `^${REDIRECT_URI}\\?`,
     }),
   },
   { additionalProperties: false },
@@ -45,13 +47,7 @@ const StatusOutput = Type.Object(
       Type.Object(
         {
           signedIn: Type.Literal(false),
-          reason: Type.Union([
-            Type.Literal("not-configured"),
-            Type.Literal("not-signed-in"),
-            Type.Literal("sign-in-expired"),
-            Type.Literal("consent-required"),
-            Type.Literal("blocked-by-policy"),
-          ]),
+          reason: Type.Enum(["not-configured", ...SIGN_IN_PROBLEMS]),
         },
         { additionalProperties: false },
       ),
@@ -86,8 +82,7 @@ async function connectionStatus(
   if (!account) return { signedIn: false, reason: "not-configured" };
   try {
     const me = await getMe(tokenProvider(api, account), api.logger, signal);
-    const signIn = await currentSignIn(api, account);
-    return { signedIn: true, ...me, scopes: signIn?.scopes ?? [] };
+    return { signedIn: true, ...me, scopes: (await signedInScopes(api, account)) ?? [] };
   } catch (error) {
     if (error instanceof SignInError) return { signedIn: false, reason: error.reason };
     throw error;
@@ -170,7 +165,7 @@ export default defineToolPlugin({
           signIn: {
             url: startSignIn(api, requireAccount(config)),
             redirectAddressStartsWith: REDIRECT_URI,
-            expiresInMinutes: 10,
+            expiresInMinutes: SIGN_IN_TTL_MS / 60_000,
           },
         }),
       }),

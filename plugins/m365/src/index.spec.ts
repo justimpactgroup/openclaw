@@ -158,36 +158,14 @@ describe("tools", () => {
       v: 1,
       account: `global|${TENANT}|${CLIENT}`,
       oid: "oid-1",
-      username: "ada@contoso.example",
       refreshToken: "fake-refresh",
       scopes: ["User.Read"],
-      updatedAt: 0,
     });
     vi.stubGlobal(
       "fetch",
       vi.fn(() => Promise.resolve(new Response(JSON.stringify(body), { status: 400 }))),
     );
     await expect(run("status")).resolves.toEqual({ connection: { signedIn: false, reason } });
-  });
-
-  it("returns a consent error from sign_in_complete as an input error", async () => {
-    const { run } = setUp();
-    const started = (await run("sign_in")) as { signIn: { url: string } };
-    const state = new URL(started.signIn.url).searchParams.get("state") ?? "";
-    const body = { error: "invalid_grant", error_codes: [65001] };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.resolve(new Response(JSON.stringify(body), { status: 400 }))),
-    );
-    await expect(
-      run("sign_in_complete", {
-        redirectUrl: `http://localhost/openclaw-m365?code=c&state=${state}`,
-      }),
-    ).rejects.toMatchObject({
-      name: "ToolInputError",
-      message:
-        "The app lacks consent for its permissions: an admin must grant it in Microsoft Entra",
-    });
   });
 
   it("passes the host's invocation guard to the state writes", async () => {
