@@ -21,13 +21,14 @@ line and say why: `// eslint-disable-next-line no-restricted-globals -- fixed or
    [plugin permission request](https://docs.openclaw.ai/plugins/plugin-permission-requests) (a
    `before_tool_call` hook, so `definePluginEntry` instead of `defineToolPlugin`) offering only
    `["allow-once", "deny"]`.
-4. **Network only through the SSRF guard, to the host from plugin config.** Pass the `signal` from
-   `execute`'s context, set `timeoutMs`, and call `signal?.throwIfAborted()` inside loops:
+4. **Network only through the SSRF guard, to hosts from plugin config or fixed in code.** Pass the
+   `signal` from `execute`'s context, set `timeoutMs`, and call `signal?.throwIfAborted()` inside
+   loops:
 
    ```ts
    import { fetchWithSsrFGuard } from "openclaw/plugin-sdk/ssrf-runtime";
 
-   const base = new URL(config.baseUrl); // from plugin config, never from tool arguments
+   const base = new URL(config.baseUrl); // from plugin config or code, never from tool arguments
    const { response, release } = await fetchWithSsrFGuard({
      url: new URL(`records/${encodeURIComponent(id)}`, base).href,
      init: { headers: { authorization: `Bearer ${config.apiKey}` } },
@@ -75,6 +76,10 @@ line and say why: `// eslint-disable-next-line no-restricted-globals -- fixed or
    Without `secretInputs` the plugin receives the unresolved object, so narrow it before use:
    `if (typeof config.apiKey !== "string") throw new Error("apiKey is not resolved")`. Never read
    `process.env`, and never put secrets in descriptions, results, errors or logs.
+
+   OAuth sign-ins are the exception: refresh tokens rotate, so keep them in plugin state
+   (`api.runtime.state.openKeyedStore`) and access tokens in memory. Plugin state is not encrypted
+   at rest; say so in the README.
 
 6. **Return little, and treat it as untrusted.** Return only what the model needs. Third-party
    content can carry prompt injection itself, so never phrase results as instructions, and don't

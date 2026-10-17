@@ -1,0 +1,40 @@
+{
+  "id": "justimpactgroup-m365",
+  "name": "Just Impact Group Microsoft 365",
+  "description": "Microsoft 365 for OpenClaw: Outlook mail, calendar, contacts, OneDrive and SharePoint through Microsoft Graph",
+  "version": "0.0.0",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "tenantId": {
+        "type": "string",
+        "description": "Directory (tenant) ID of your Microsoft Entra tenant",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "maxLength": 36
+      },
+      "clientId": {
+        "type": "string",
+        "description": "Application (client) ID of your Entra app registration",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "maxLength": 36
+      }
+    },
+    "additionalProperties": false
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "justimpactgroup_m365_status",
+      "justimpactgroup_m365_sign_in",
+      "justimpactgroup_m365_sign_in_complete",
+      "justimpactgroup_m365_sign_out"
+    ]
+  },
+  "toolMetadata": {
+    "justimpactgroup_m365_sign_out": {
+      "optional": true
+    }
+  }
+}
