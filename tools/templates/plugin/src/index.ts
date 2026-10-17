@@ -13,7 +13,12 @@ const EchoParams = Type.Object(
 function parse<T extends TSchema>(schema: T, params: unknown): Static<T> {
   if (Value.Check(schema, params)) return params;
   const [first] = Value.Errors(schema, params);
-  throw new Error(`Invalid arguments: ${first?.instancePath || "/"} ${first?.message ?? ""}`);
+  const error = new Error(
+    `Invalid arguments: ${first?.instancePath || "/"} ${first?.message ?? ""}`,
+  );
+  // Those calls return only this name's messages (HTTP 400); other errors become a bare HTTP 500.
+  error.name = "ToolInputError";
+  throw error;
 }
 
 export default defineToolPlugin({

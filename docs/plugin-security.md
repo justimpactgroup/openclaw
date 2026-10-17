@@ -14,7 +14,8 @@ line and say why: `// eslint-disable-next-line no-restricted-globals -- fixed or
    text. Constrain IDs with a `pattern` such as `^[A-Za-z0-9_-]{1,64}$`: `encodeURIComponent`
    leaves `.` and `..` intact, so an unchecked ID can walk the API's paths.
 2. **Validate again in `execute`** with the template's `parse()`: `/tools/invoke` and the
-   `tools.invoke` RPC skip the schema check.
+   `tools.invoke` RPC skip the schema check. Keep the `ToolInputError` name on its errors: those
+   calls return only such messages (HTTP 400) and turn other errors into a bare HTTP 500.
 3. **Side effects are opt-in and confirmed.** Tools that write, send, delete, pay or publish set
    `optional: true`, and the README tells users to enable them with
    `tools.alsoAllow: ["<tool name>"]`. Irreversible or costly actions also ask on every call with a

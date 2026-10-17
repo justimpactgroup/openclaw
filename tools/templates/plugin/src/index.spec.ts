@@ -27,7 +27,9 @@ describe("__TOOL_NAME__", () => {
   it.each([{ input: 42 }, { input: "hi", extra: true }, {}, { input: "x".repeat(1001) }])(
     "rejects invalid arguments %j",
     async (params) => {
-      await expect(echoTool().execute("call-1", params)).rejects.toThrow(/^Invalid arguments/);
+      const call = echoTool().execute("call-1", params);
+      await expect(call).rejects.toThrow(/^Invalid arguments/);
+      await expect(call).rejects.toMatchObject({ name: "ToolInputError" });
     },
   );
 
